@@ -13,6 +13,8 @@
   --radius:20px;
   --radius-sm:14px;
   --gap:16px;
+
+  --tabbar-h:68px;     /* bottom bar height */
 }
 
 *{box-sizing:border-box}
@@ -23,7 +25,10 @@ body{
   font: 16px/1.35 system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;
   -webkit-font-smoothing:antialiased;
   -moz-osx-font-smoothing:grayscale;
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
 }
+button, .btn, .tab, .pill { touch-action: manipulation; }
 
 .app-header{
   position:sticky; top:0; z-index:10;
@@ -46,11 +51,17 @@ body{
   padding:8px 12px; border-radius:999px; color:var(--text);
   box-shadow: var(--shadow);
 }
+.pill:active{transform:scale(.98)}
 .pill .emoji{filter: drop-shadow(0 0 10px rgba(91,140,255,.35))}
 .xpbar{height:10px; background:#1B2547; border-radius:999px; overflow:hidden; margin-top:10px}
 .xpbar > div{height:100%; width:0%; background: linear-gradient(90deg, var(--success), #8BFFB0)}
 
-.app-main{max-width:900px; margin:0 auto; padding: var(--gap)}
+.app-main{
+  max-width:900px; margin:0 auto; padding: var(--gap);
+  /* padding-bottom so content doesn't hide behind fixed tabbar */
+  padding-bottom: calc(var(--tabbar-h) + 20px + env(safe-area-inset-bottom));
+}
+
 .view{display:none; outline:none}
 .view.active{display:block}
 
@@ -82,7 +93,7 @@ h3{font-size:20px; margin:0}
 .tile .meta{display:flex; flex-direction:column}
 .tile .title{font-weight:600}
 .tile .sub{font-size:12px; color:var(--muted)}
-.tile.done{background: linear-gradient(180deg, #10271C, #0B1E16); border-color:#1e4b36}
+.tile.done{background: linear-gradient(180deg, #10271C, #0B1E16); border-color:#1e4b36; box-shadow: inset 0 0 0 1px rgba(83,255,136,.25)}
 .tile.done .title::after{content:" ✓"; color:var(--success)}
 .cap{font-size:12px; color:var(--muted)}
 
@@ -124,7 +135,8 @@ h3{font-size:20px; margin:0}
 .form label{display:grid; gap:6px; color:var(--muted); font-size:14px}
 input[type="text"],input[type="number"]{
   background:#0F1630; border:1px solid var(--border); color:var(--text);
-  border-radius:10px; padding:10px 12px; outline:none;
+  border-radius:10px; padding:12px 14px; outline:none; /* >=16px to prevent iOS zoom */
+  font-size:16px;
 }
 
 .grid.two{display:grid; grid-template-columns: 1fr 1fr; gap:var(--gap)}
@@ -147,31 +159,50 @@ input[type="text"],input[type="number"]{
 .hm-l3{background:#35538f}
 .hm-l4{background:#5B8CFF}
 
+/* Fixed bottom tabbar */
 .tabbar{
-  position:sticky; bottom:0; z-index:10;
+  position:fixed; left:0; right:0; bottom:0; z-index:20;
   display:grid; grid-template-columns: repeat(4, 1fr);
-  gap:0;
-  background: rgba(13,19,38,.9);
+  background: rgba(13,19,38,.85);
   backdrop-filter: blur(8px);
   border-top:1px solid rgba(255,255,255,.06);
+  height: var(--tabbar-h);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 .tab{
   padding:14px 8px; color:var(--muted); background:transparent; border:none; font-weight:700; cursor:pointer
 }
 .tab.active{color:var(--text); border-top:2px solid var(--primary)}
 
+/* Floating Action Button */
+.fab{
+  position:fixed; left:50%;
+  bottom: calc(var(--tabbar-h) - 22px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width:64px; height:64px; border-radius:999px;
+  border:1px solid var(--border);
+  background: radial-gradient(circle at 50% 20%, #6aa0ff, #5B8CFF);
+  color:#081126; font-weight:900; font-size:34px; line-height:62px; text-align:center;
+  box-shadow: 0 14px 40px rgba(91,140,255,.45), inset 0 0 10px rgba(255,255,255,.2);
+  z-index:25;
+}
+
+/* Toast */
 .toast{
-  position:fixed; left:50%; bottom:80px; transform:translateX(-50%);
+  position:fixed; left:50%; bottom: calc(var(--tabbar-h) + 20px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);
   background: #0F1630; border:1px solid var(--border); color:var(--text);
   padding:10px 14px; border-radius:12px; box-shadow: var(--shadow);
   opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease;
+  z-index:30;
 }
 .toast.show{opacity:1; transform: translateX(-50%) translateY(-6px)}
 
+/* Centered modal */
 .modal.hidden{display:none}
 .modal{
   position:fixed; inset:0; background:rgba(0,0,0,.55);
-  display:flex; align-items:center; justify-content:center; padding:16px;
+  display:flex; align-items:center; justify-content:center; padding:16px; z-index:40;
 }
 .modal-card{
   background: linear-gradient(180deg, var(--surface), #0f1426);
@@ -183,68 +214,30 @@ input[type="text"],input[type="number"]{
 .modal-actions{display:flex; gap:10px; justify-content:flex-end; padding-top:6px}
 .file input[type=file]{display:none}
 
-/* ===== Patch: fixed tabbar, FAB, sheets, app-like feel ===== */
-html, body { height: 100%; overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
-button, .btn, .tab, .pill { touch-action: manipulation; }
-
-.app-main { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
-
-.tabbar{
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  height: 72px; padding-bottom: env(safe-area-inset-bottom);
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  background: rgba(13,19,38,.85);
-  backdrop-filter: blur(10px);
-  border-top:1px solid rgba(255,255,255,.06);
+/* Bottom sheet */
+.sheet.hidden{display:none}
+.sheet{
+  position:fixed; inset:0; background:rgba(0,0,0,.45);
+  display:flex; align-items:flex-end; justify-content:center; padding:0; z-index:35;
 }
-.tab{ font-weight:700; color:var(--muted); border:none; background:transparent; }
-.tab.active{ color:var(--text); border-top:2px solid var(--primary) }
-
-.fab{
-  position: fixed; left: 50%;
-  bottom: calc(72px + env(safe-area-inset-bottom) - 28px);
-  transform: translateX(-50%);
-  width:64px; height:64px; border-radius:999px;
-  background: radial-gradient(100px 80px at 50% 20%, #6BA0FF, #4466CC);
-  color:white; font-size:32px; line-height:64px; text-align:center; font-weight:900;
-  box-shadow: 0 10px 30px rgba(0,0,0,.4), 0 0 30px rgba(91,140,255,.45) inset;
-  border: 2px solid rgba(255,255,255,.1);
+.sheet-card{
+  width:100%; max-width:900px;
+  background: linear-gradient(180deg, #0E1330, #0B1024);
+  border-top-left-radius: 18px; border-top-right-radius: 18px;
+  border:1px solid var(--border); border-bottom: none;
+  padding: 12px 12px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 30px rgba(0,0,0,.4);
 }
-.fab:active{ transform: translateX(-50%) scale(.98); }
-
-.sheet.hidden{ display: none; }
-.sheet{ position: fixed; inset: 0; z-index: 30; }
-.sheet-overlay{
-  position:absolute; inset:0; background: rgba(0,0,0,.45);
+.sheet-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px}
+.sheet-body{display:grid; gap:10px}
+.sheet-row{display:flex; gap:10px; overflow:auto; scrollbar-width:none}
+.sheet-row::-webkit-scrollbar{display:none}
+.sheet-tile{
+  min-width:180px;
+  background: linear-gradient(180deg, #111A33, #0D142A);
+  border:1px solid var(--border);
+  border-radius: 16px;
+  padding:12px;
 }
-.sheet-panel{
-  position:absolute; left:0; right:0; bottom:0;
-  max-height: 74vh; overflow:auto;
-  background: linear-gradient(180deg, var(--surface), #0f1426);
-  border-top-left-radius: 20px; border-top-right-radius: 20px;
-  border-top:1px solid var(--border);
-  padding:14px;
-  box-shadow: 0 -10px 30px rgba(0,0,0,.35);
-}
-.sheet-head{
-  display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;
-}
-.qa-list{
-  display: grid; grid-auto-flow: column;
-  grid-auto-columns: minmax(160px, 1fr);
-  gap:10px; overflow-x:auto; padding-bottom:8px; scrollbar-width:none;
-}
-.qa-list::-webkit-scrollbar{ display:none; }
-
-.qa-pick{
-  min-width:160px; background: linear-gradient(180deg, #0F1630, #0B1126);
-  border:1px solid var(--border); border-radius:14px; padding:12px;
-  display:flex; flex-direction:column; gap:6px; justify-content:space-between;
-}
-.qa-title{ font-weight:700 }
-.qa-sub{ font-size:12px; color:var(--muted) }
-.qa-btn{ align-self:flex-end }
-
-.completed-badge{
-  font-size:12px; color: var(--muted);
-}
+.sheet-tile .t-title{font-weight:700}
+.sheet-tile .t-sub{font-size:12px; color:var(--muted); margin:4px 0 8px}
