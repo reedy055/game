@@ -203,7 +203,32 @@
     </div>
   </div>
 
-  <!-- NOTE: We will add app.js/db.js/charts.js in the next chunk -->
+   <!-- Scripts -->
+  <script type="module">
+    import "./app.js";
+  </script>
+  <script>
+    // Register SW early (kept from chunk 1)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(()=>{});
+    }
+    // Fallback tab wiring if app.js hasn't run yet
+    (function(){
+      const tabs = document.querySelectorAll('.tabbar .tab');
+      const views = document.querySelectorAll('.view');
+      tabs.forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          tabs.forEach(b=>b.classList.remove('active'));
+          btn.classList.add('active');
+          const id = btn.getAttribute('data-target');
+          views.forEach(v=>v.classList.toggle('active', v.id===id));
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
+
   <script>
     // Minimal nav wiring so tabs switch even before app.js arrives
     (function(){
