@@ -1,4 +1,8 @@
-// app.js — core logic & UI wiring
+// app.js — core logic & UI wiring (v2)
+// Implements: fixed bottom bar + "+" Quick Add drawer, Coins→Shop drawer,
+// Weekly Boss quest (cumulative), Completed Today feed w/ Undo,
+// no reroll (3 fixed daily challenges), simplified Settings, state migration v2.
+
 import { loadState, saveState, clearAll, exportJSON, importJSON } from "./db.js";
 import { renderBarChart, renderCalendarHeatmap } from "./charts.js";
 
@@ -16,6 +20,19 @@ function toast(msg) {
   setTimeout(()=>t.classList.remove("show"), 1800);
 }
 
+function banner(msg) {
+  const b = $("#banner");
+  b.textContent = msg;
+  b.classList.remove("hidden");
+  requestAnimationFrame(()=>{
+    b.classList.add("show");
+    setTimeout(()=>{
+      b.classList.remove("show");
+      setTimeout(()=>b.classList.add("hidden"), 260);
+    }, 1200);
+  });
+}
+
 function vibrate(ms=40) {
   if (!state.settings.haptics) return;
   try { navigator.vibrate && navigator.vibrate(ms); } catch {}
@@ -24,40 +41,92 @@ function vibrate(ms=40) {
 function todayLocalDateStringAt(hour) {
   // "game day" = date after subtracting reset hour
   const now = new Date();
-  const t = new Date(now.getTime());
-  // shift by reset hour
-  const offsetMs = hour * 60 * 60 * 1000;
-  const shifted = new Date(now.getTime() - offsetMs);
+  const shifted = new Date(now.getTime() - hour*3600*1000);
   shifted.setHours(0,0,0,0);
   return shifted.toISOString().slice(0,10);
 }
-
 function dayDiff(a,b) {
-  // a,b: "YYYY-MM-DD"
   const da = new Date(a+"T00:00:00");
   const db = new Date(b+"T00:00:00");
   return Math.round((da - db)/(1000*60*60*24));
 }
-
 function uuid() { return crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)+Date.now(); }
 
+// Monday (ISO) week start for a given "YYYY-MM-DD"
+function weekStart(dayStr) {
+  const d = new Date(dayStr+"T00:00:00");
+  let wd = d.getDay(); // 0=Sun
+  const delta = (wd === 0 ? -6 : 1 - wd); // move to Monday
+  d.setDate(d.getDate()+delta);
+  return d.toISOString().slice(0,10);
+}
+
 /* =========================
-   Default State
+   Default State (v2)
 ========================= */
-function defaultState() {
+function defaultStateV2() {
   return {
-    version: 1,
-    settings: { resetHour: 4, rerollCost: 20, haptics: true },
+    version: 2,
+    settings: { resetHour: 4, haptics: true },
     profile: { coins: 0, bestStreak: 0, lastActiveDay: null },
-    today: { day: null, points: 0, rerolled: false, doneCounts: {}, challengeDone: {} },
+    today: {
+      day: null,
+      points: 0,
+      doneCounts: {},          // taskId -> count today
+      challengeDone: {},       // challengeId -> true if done today
+      lastMilestone: 0         // last Points milestone bannered (e.g., 0,100,200)
+    },
     streak: { current: 0 },
     tasks: [],
     challenges: [],
     shop: [],
     assigned: {},              // { day: [challengeIds] }
     progress: {},              // { day: { points, completions, coinsEarned, coinsSpent } }
-    logs: []                   // append-only
+    logs: [],                  // append-only [{ts,type,id,name,points?,coins?,cost?,day}]
+    weeklyBoss: {              // one quest per week
+      weekStartDay: null,
+      goals: [],               // [{id,label,target,tally,linkedTaskIds:[]}]
+      completed: false
+    }
   };
+}
+
+/* =========================
+   Migration v1 -> v2
+========================= */
+function migrateToV2(old) {
+  // If already v2, just return.
+  if (old && old.version >= 2) return old;
+
+  const state = defaultStateV2();
+  if (!old) return state;
+
+  // Carry over compatible fields
+  state.profile = old.profile || state.profile;
+  state.settings.resetHour = old.settings?.resetHour ?? state.settings.resetHour;
+  state.settings.haptics = old.settings?.haptics ?? true;
+  state.streak = old.streak || state.streak;
+  state.tasks = old.tasks || [];
+  state.challenges = old.challenges || [];
+  state.shop = old.shop || [];
+  state.assigned = old.assigned || {};
+  state.progress = old.progress || {};
+  state.logs = old.logs || [];
+  // today.day/points if same day; else will be re-evaluated
+  state.today.day = old.today?.day ?? null;
+  state.today.points = old.today?.points ?? 0;
+  state.today.doneCounts = old.today?.doneCounts || {};
+  state.today.challengeDone = old.today?.challengeDone || {};
+  state.today.lastMilestone = 0;
+
+  // Weekly boss initialize
+  const gd = todayLocalDateStringAt(state.settings.resetHour);
+  state.weeklyBoss.weekStartDay = weekStart(gd);
+  state.weeklyBoss.goals = []; // user can set templates later
+  state.weeklyBoss.completed = false;
+
+  state.version = 2;
+  return state;
 }
 
 /* =========================
@@ -71,25 +140,37 @@ let state = null;
 window.addEventListener("DOMContentLoaded", init);
 
 async function init() {
-  // Wire some static UI handlers
+  // Wire static UI handlers
   $("#pillStreak")?.addEventListener("click", ()=> switchView("statsView"));
-  $("#btnReroll").addEventListener("click", onReroll);
+  $("#pillCoins")?.addEventListener("click", openShopDrawer);
+
   $("#btnExport").addEventListener("click", onExport);
   $("#fileImport").addEventListener("change", onImport);
   $("#btnWipe").addEventListener("click", onWipe);
   $("#inpResetHour").addEventListener("change", onSettingChanged);
-  $("#inpRerollCost").addEventListener("change", onSettingChanged);
   $("#chkHaptics").addEventListener("change", onSettingChanged);
 
   $("#btnAddTask").addEventListener("click", ()=> openItemModal("task"));
   $("#btnAddChallenge").addEventListener("click", ()=> openItemModal("challenge"));
   $("#btnAddShop").addEventListener("click", ()=> openItemModal("shop"));
 
-  // Load or init state
-  const loaded = await loadState();
-  state = loaded || defaultState();
+  // Boss templates (simple quick-setup)
+  $("#btnBossTemplate1").addEventListener("click", ()=> applyBossTemplate("momentum"));
+  $("#btnBossTemplate2").addEventListener("click", ()=> applyBossTemplate("social"));
 
-  ensureGameDayRoll();
+  // Quick Add (+) wiring
+  $("#tabAdd").addEventListener("click", openQuickAdd);
+  $("#drawerQuickClose").addEventListener("click", closeQuickAdd);
+  $("#drawerShopClose").addEventListener("click", closeShopDrawer);
+  // Close drawers when clicking backdrop
+  $("#drawerQuickAdd").addEventListener("click", (e)=> { if (e.target.id==="drawerQuickAdd") closeQuickAdd(); });
+  $("#drawerShop").addEventListener("click", (e)=> { if (e.target.id==="drawerShop") closeShopDrawer(); });
+
+  // Load or init state (with migration)
+  const loaded = await loadState();
+  state = migrateToV2(loaded || null);
+
+  ensureGameDayRoll();        // also initializes weekly boss for week if needed
   renderAll();
   await saveState(state);
 }
@@ -99,10 +180,15 @@ async function init() {
 ========================= */
 function ensureGameDayRoll() {
   const gd = todayLocalDateStringAt(state.settings.resetHour);
+  // Weekly boss init if missing
+  if (!state.weeklyBoss.weekStartDay) {
+    state.weeklyBoss.weekStartDay = weekStart(gd);
+  }
+  // If first run
   if (state.today.day === null) {
-    // first run
     state.today.day = gd;
     ensureDailyAssignments();
+    maybeResetWeeklyBoss(gd);
     return;
   }
   if (gd !== state.today.day) {
@@ -119,10 +205,11 @@ function ensureGameDayRoll() {
     // Reset today
     state.today.day = gd;
     state.today.points = 0;
-    state.today.rerolled = false;
     state.today.doneCounts = {};
     state.today.challengeDone = {};
+    state.today.lastMilestone = 0;
     ensureDailyAssignments();
+    maybeResetWeeklyBoss(gd);
   }
 }
 
@@ -132,7 +219,7 @@ function ensureDailyAssignments() {
 
   const pool = state.challenges.filter(c => c.active !== false);
   const ids = pool.map(x=>x.id);
-  // Pick up to 3 unique; prefer avoiding yesterday's if possible
+  // Try to avoid yesterday's picks (if pool ≥6)
   const yest = new Date(day+"T00:00:00"); yest.setDate(yest.getDate()-1);
   const yKey = yest.toISOString().slice(0,10);
   const avoid = new Set(state.assigned[yKey] || []);
@@ -146,6 +233,17 @@ function ensureDailyAssignments() {
     if (!selected.includes(id)) selected.push(id);
   }
   state.assigned[day] = selected;
+}
+
+function maybeResetWeeklyBoss(currentDay) {
+  const ws = state.weeklyBoss.weekStartDay || weekStart(currentDay);
+  const needReset = weekStart(currentDay) !== ws;
+  if (needReset) {
+    // Start a fresh week, keep the same goals definitions but reset tallies
+    state.weeklyBoss.weekStartDay = weekStart(currentDay);
+    state.weeklyBoss.completed = false;
+    for (const g of state.weeklyBoss.goals) g.tally = 0;
+  }
 }
 
 /* =========================
@@ -170,6 +268,10 @@ function renderHeader() {
 }
 
 function renderHome() {
+  // Hide legacy task card (we now show only Completed Today)
+  const legacy = $("#legacyTasksCard");
+  if (legacy) legacy.style.display = "none";
+
   // Daily challenges
   const list = $("#dailyList");
   list.innerHTML = "";
@@ -209,94 +311,132 @@ function renderHome() {
     });
   }
 
-  // Reroll button
-  const cost = state.settings.rerollCost || 0;
-  const canReroll = !state.today.rerolled && cost <= (state.profile.coins||0) && (assigned.length>0);
-  const btnR = $("#btnReroll");
-  btnR.disabled = !canReroll;
-  btnR.textContent = `↻ Reroll (${cost}🪙)`;
+  // Weekly Boss
+  renderBoss();
 
-  // Tasks
-  const tl = $("#taskList");
-  tl.innerHTML = "";
-  const tasks = state.tasks.filter(t=>t.active!==false);
-  if (tasks.length===0) {
+  // Completed Today feed
+  renderCompletedFeed();
+}
+
+function renderBoss() {
+  const ring = $("#bossRing");
+  const goalsWrap = $("#bossGoals");
+  goalsWrap.innerHTML = "";
+
+  // Compute progress
+  const goals = state.weeklyBoss.goals || [];
+  let totalTarget = 0, totalTally = 0;
+  for (const g of goals) { totalTarget += (g.target||0); totalTally += Math.min(g.tally||0, g.target||0); }
+  const pct = totalTarget>0 ? Math.round((totalTally/totalTarget)*100) : 0;
+
+  drawBossRing(ring, pct);
+
+  if (goals.length === 0) {
     const d = document.createElement("div");
-    d.className="placeholder"; d.textContent="Add tasks in Manage → Tasks.";
-    tl.appendChild(d);
-  } else {
-    tasks.forEach(t=>{
-      const tile = document.createElement("div");
-      const cap = t.perDayCap || 1;
-      const count = state.today.doneCounts[t.id] || 0;
-      const isDone = count >= cap;
-
-      tile.className = "tile" + (isDone ? " done" : "");
-      const meta = document.createElement("div");
-      meta.className = "meta";
-      const title = document.createElement("div");
-      title.className = "title"; title.textContent = t.name;
-      const sub = document.createElement("div");
-      sub.className = "sub";
-      const pts = t.points ?? 10;
-      const coins = t.coinsEarned ?? pts;
-      sub.textContent = `+${pts} pts, +${coins} coins`;
-      const capLabel = document.createElement("div");
-      capLabel.className = "cap";
-      capLabel.textContent = cap>1 ? `${count}/${cap} today` : (isDone ? "Done today" : "1×/day");
-
-      meta.appendChild(title); meta.appendChild(sub); meta.appendChild(capLabel);
-
-      const controls = document.createElement("div");
-      controls.className = "row";
-      const btnPlus = document.createElement("button");
-      btnPlus.className = "btn small"; btnPlus.textContent = isDone ? "Undo" : "Do";
-      btnPlus.addEventListener("click", ()=> toggleTaskOnce(t));
-
-      // For caps >1, provide "-" button to undo one
-      if (cap>1) {
-        const btnMinus = document.createElement("button");
-        btnMinus.className = "btn ghost small"; btnMinus.textContent = "−";
-        btnMinus.addEventListener("click", ()=> undoTaskOnce(t));
-        controls.appendChild(btnMinus);
-      }
-      controls.appendChild(btnPlus);
-
-      tile.appendChild(meta); tile.appendChild(controls);
-      tl.appendChild(tile);
-    });
+    d.className = "placeholder";
+    d.textContent = "Use a Boss template in Manage (bottom of Manage tab).";
+    goalsWrap.appendChild(d);
+    return;
   }
 
-  // Shop
-  const sh = $("#shopList");
-  sh.innerHTML = "";
-  const items = state.shop.filter(s=>s.active!==false);
-  if (items.length===0) {
-    const d = document.createElement("div");
-    d.className="placeholder"; d.textContent="Create rewards in Manage → Shop.";
-    sh.appendChild(d);
-  } else {
-    items.forEach(s=>{
-      const card = document.createElement("div");
-      card.className = "shop-card";
-      const title = document.createElement("div");
-      title.className="shop-title"; title.textContent = s.name;
-      const cost = document.createElement("div");
-      cost.className="shop-cost"; cost.textContent = `${s.cost} coins`;
-      const btn = document.createElement("button");
-      btn.className="btn small"; btn.textContent="Buy";
-      const cooldown = s.cooldownDays || 0;
-      const last = s.lastBoughtDay || null;
-      const blocked = cooldown>0 && last && dayDiff(state.today.day, last) <= cooldown-1;
-      if (blocked) {
-        btn.disabled = true;
-        cost.textContent += ` • ${cooldown}-day cooldown`;
-      }
-      btn.addEventListener("click", ()=> buyItem(s));
-      card.appendChild(title); card.appendChild(cost); card.appendChild(btn);
-      sh.appendChild(card);
-    });
+  for (const g of goals) {
+    const row = document.createElement("div");
+    row.className = "boss-goal";
+    const top = document.createElement("div");
+    top.className = "row";
+    const label = document.createElement("div");
+    label.className = "label";
+    label.textContent = g.label;
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const clamped = Math.min(g.tally||0, g.target||0);
+    meta.textContent = `${clamped}/${g.target}`;
+    top.appendChild(label); top.appendChild(meta);
+    const bar = document.createElement("div");
+    bar.className = "boss-bar";
+    const fill = document.createElement("div");
+    const gpct = g.target>0 ? Math.round((clamped/g.target)*100) : 0;
+    fill.style.width = `${gpct}%`;
+    bar.appendChild(fill);
+    row.appendChild(top); row.appendChild(bar);
+    goalsWrap.appendChild(row);
   }
+}
+
+function drawBossRing(canvas, pct) {
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2, r = Math.min(W,H)/2 - 14;
+  ctx.clearRect(0,0,W,H);
+
+  // Background circle
+  ctx.lineWidth = 14;
+  ctx.strokeStyle = "#1b2347";
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI*2);
+  ctx.stroke();
+
+  // Gradient arc (blue -> purple)
+  const grad = ctx.createLinearGradient(0,0,W,H);
+  grad.addColorStop(0, "#5B8CFF");
+  grad.addColorStop(1, "#B85CFF");
+  ctx.strokeStyle = grad;
+
+  const start = -Math.PI/2;
+  const end = start + (Math.PI*2)*(pct/100);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, start, end);
+  ctx.stroke();
+
+  // Text
+  ctx.fillStyle = "rgba(230,233,242,.85)";
+  ctx.font = "24px system-ui, -apple-system, Segoe UI, Roboto";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(`${pct}%`, cx, cy);
+}
+
+function renderCompletedFeed() {
+  const wrap = $("#feedToday");
+  wrap.innerHTML = "";
+
+  const today = state.today.day;
+  // Show only today's completions (task/challenge), newest first
+  const items = state.logs.filter(l => l.day === today && (l.type==='task' || l.type==='challenge'));
+  if (items.length === 0) {
+    const d = document.createElement("div");
+    d.className = "placeholder";
+    d.textContent = "Nothing completed yet. Tap the + to get started.";
+    wrap.appendChild(d);
+    return;
+  }
+  items.forEach((log, idx) => {
+    const row = document.createElement("div");
+    row.className = "feed-item";
+    const left = document.createElement("div");
+    left.className = "feed-left";
+    const title = document.createElement("div");
+    title.className = "feed-title";
+    title.textContent = log.name;
+    const sub = document.createElement("div");
+    sub.className = "feed-sub";
+    if (log.type==='task') sub.textContent = `Task • +${log.points} pts, +${log.coins} coins`;
+    else sub.textContent = `Challenge • +${log.points} pts, +${log.coins} coins`;
+    left.appendChild(title); left.appendChild(sub);
+
+    const right = document.createElement("div");
+    right.className = "feed-right";
+    const undo = document.createElement("button");
+    undo.className = "chip-undo";
+    undo.textContent = "Undo";
+    undo.addEventListener("click", ()=> undoLogEntry(log));
+    right.appendChild(undo);
+
+    row.appendChild(left); row.appendChild(right);
+    // newest first: logs are unshifted at grant(), so they already are newest-first
+    wrap.appendChild(row);
+  });
 }
 
 function renderStats() {
@@ -316,7 +456,6 @@ function renderStats() {
   const last30 = getLastNDays(30);
   const vals = last30.map(d=> (state.progress[d]?.points) || 0);
   const cvs = $("#bar30");
-  // ensure pixel-perfect canvas sizing on HiDPI
   const r = window.devicePixelRatio || 1;
   cvs.style.width = "100%";
   const w = cvs.clientWidth || 600;
@@ -334,16 +473,16 @@ function renderManage() {
   renderAdminList("task");
   renderAdminList("challenge");
   renderAdminList("shop");
+  renderBossManage(); // simple template actions UI
 }
 
 function renderSettings() {
   $("#inpResetHour").value = state.settings.resetHour;
-  $("#inpRerollCost").value = state.settings.rerollCost;
   $("#chkHaptics").checked = !!state.settings.haptics;
 }
 
 /* =========================
-   Actions
+   Actions: Grant/Spend/Undo
 ========================= */
 function ensureProgressBucket(day) {
   if (!state.progress[day]) {
@@ -356,11 +495,25 @@ async function grant(points, coins, name, type, id) {
   const day = state.today.day;
   state.today.points = (state.today.points || 0) + points;
   state.profile.coins = (state.profile.coins || 0) + coins;
+
+  // Milestone banner at 100, 200, 300 ...
+  const nextMilestone = Math.floor((state.today.points)/100)*100;
+  if (nextMilestone > 0 && nextMilestone > (state.today.lastMilestone||0)) {
+    state.today.lastMilestone = nextMilestone;
+    banner(`Milestone: ${nextMilestone} points today!`);
+  }
+
   const bucket = ensureProgressBucket(day);
   bucket.points += points;
   bucket.coinsEarned += coins;
   bucket.completions += 1;
-  state.logs.unshift({ ts:new Date().toISOString(), type, id, name, points, coins, day });
+
+  const log = { ts:new Date().toISOString(), type, id, name, points, coins, day };
+  state.logs.unshift(log);
+
+  // Weekly boss tally: if this id is linked to any goal, increment
+  tallyWeeklyBossForCompletion(id);
+
   vibrate(40);
   toast(`+${points} pts, +${coins} coins`);
   renderHeader();
@@ -379,104 +532,219 @@ async function spend(cost, name, id) {
   await saveState(state);
 }
 
-// Task toggle (increments up to cap, then Undo reduces by 1; for cap=1 toggle)
-async function toggleTaskOnce(t) {
+async function toggleChallenge(ch) {
   ensureGameDayRoll();
-  const cap = t.perDayCap || 1;
-  const count = state.today.doneCounts[t.id] || 0;
-  if (count < cap) {
-    state.today.doneCounts[t.id] = count + 1;
-    await grant(t.points ?? 10, t.coinsEarned ?? (t.points ?? 10), t.name, "task", t.id);
+  const id = ch.id;
+  const done = !!state.today.challengeDone[id];
+  const pts = ch.points ?? 10;
+  const coins = ch.coinsEarned ?? pts;
+  if (!done) {
+    state.today.challengeDone[id] = true;
+    await grant(pts, coins, ch.name, "challenge", id);
   } else {
-    // undo last
-    await undoTaskOnce(t);
-    return;
+    // undo
+    delete state.today.challengeDone[id];
+    await reverseGrant(pts, coins, "challenge", id);
   }
-  await saveState(state);
-  renderHome(); renderStats();
+  renderHeader(); renderHome(); renderStats();
 }
 
-async function undoTaskOnce(t) {
-  const count = state.today.doneCounts[t.id] || 0;
-  if (count <= 0) return;
-  state.today.doneCounts[t.id] = count - 1;
-  // Reverse effects on *today* only (simple)
-  const pts = t.points ?? 10;
-  const coins = t.coinsEarned ?? pts;
+async function reverseGrant(pts, coins, kind, id) {
   state.today.points = Math.max(0, (state.today.points||0) - pts);
   state.profile.coins = Math.max(0, (state.profile.coins||0) - coins);
   const bucket = ensureProgressBucket(state.today.day);
   bucket.points = Math.max(0, bucket.points - pts);
   bucket.coinsEarned = Math.max(0, bucket.coinsEarned - coins);
   bucket.completions = Math.max(0, bucket.completions - 1);
+  // remove first matching log entry for today (most recent)
+  const i = state.logs.findIndex(l => l.day===state.today.day && l.type===kind && l.id===id && l.points===pts && l.coins===coins);
+  if (i>=0) state.logs.splice(i,1);
+
+  // Weekly boss reverse tally
+  reverseWeeklyBossForCompletion(id);
+
   toast("Undone");
   vibrate(10);
   await saveState(state);
-  renderHeader(); renderHome(); renderStats();
 }
 
-async function toggleChallenge(ch) {
-  ensureGameDayRoll();
-  const id = ch.id;
-  const done = !!state.today.challengeDone[id];
-  if (!done) {
-    state.today.challengeDone[id] = true;
-    await grant(ch.points ?? 10, ch.coinsEarned ?? (ch.points ?? 10), ch.name, "challenge", id);
-  } else {
-    // undo
-    delete state.today.challengeDone[id];
-    const pts = ch.points ?? 10;
-    const coins = ch.coinsEarned ?? pts;
-    state.today.points = Math.max(0, (state.today.points||0) - pts);
-    state.profile.coins = Math.max(0, (state.profile.coins||0) - coins);
-    const bucket = ensureProgressBucket(state.today.day);
-    bucket.points = Math.max(0, bucket.points - pts);
-    bucket.coinsEarned = Math.max(0, bucket.coinsEarned - coins);
-    bucket.completions = Math.max(0, bucket.completions - 1);
-    toast("Undone");
-    vibrate(10);
-    await saveState(state);
+async function undoLogEntry(log) {
+  // Only allow same-day undo
+  if (log.day !== state.today.day) { toast("Can only undo today"); return; }
+  if (log.type==='task') {
+    // decrement task count, if >0
+    const count = state.today.doneCounts[log.id] || 0;
+    if (count > 0) state.today.doneCounts[log.id] = count - 1;
+    await reverseGrant(log.points, log.coins, 'task', log.id);
+  } else if (log.type==='challenge') {
+    if (state.today.challengeDone[log.id]) delete state.today.challengeDone[log.id];
+    await reverseGrant(log.points, log.coins, 'challenge', log.id);
   }
-  renderHeader(); renderHome(); renderStats();
-}
-
-async function onReroll() {
-  const cost = state.settings.rerollCost || 0;
-  if (state.today.rerolled) return;
-  if ((state.profile.coins||0) < cost) {
-    toast("Not enough coins");
-    vibrate(8);
-    return;
-  }
-  // Spend & reroll
-  await spend(cost, "Reroll", "reroll");
-  state.today.rerolled = true;
-  // Reassign
-  delete state.assigned[state.today.day];
-  ensureDailyAssignments();
-  await saveState(state);
-  renderHome();
-}
-
-async function buyItem(s) {
-  const cost = s.cost || 0;
-  if ((state.profile.coins||0) < cost) {
-    toast("Not enough coins");
-    vibrate(8);
-    return;
-  }
-  const cooldown = s.cooldownDays || 0;
-  const last = s.lastBoughtDay || null;
-  const blocked = cooldown>0 && last && dayDiff(state.today.day, last) <= cooldown-1;
-  if (blocked) { toast("On cooldown"); return; }
-  await spend(cost, s.name, s.id);
-  s.lastBoughtDay = state.today.day;
-  await saveState(state);
   renderHome(); renderStats();
 }
 
 /* =========================
-   Manage CRUD
+   Weekly Boss tally helpers
+========================= */
+function tallyWeeklyBossForCompletion(itemId) {
+  const goals = state.weeklyBoss.goals || [];
+  let allComplete = true;
+  for (const g of goals) {
+    const linked = g.linkedTaskIds || [];
+    if (linked.includes(itemId)) {
+      g.tally = Math.min((g.tally||0)+1, g.target||0);
+    }
+    if ((g.tally||0) < (g.target||0)) allComplete = false;
+  }
+  if (!state.weeklyBoss.completed && allComplete && goals.length>0) {
+    state.weeklyBoss.completed = true;
+    state.profile.coins = (state.profile.coins||0) + 100; // boss bonus
+    toast("+100 coins • Boss defeated!");
+    banner("WEEKLY BOSS DEFEATED!");
+  }
+}
+function reverseWeeklyBossForCompletion(itemId) {
+  const goals = state.weeklyBoss.goals || [];
+  // Reverse only if tally > 0 and this item was linked
+  for (const g of goals) {
+    const linked = g.linkedTaskIds || [];
+    if (linked.includes(itemId) && (g.tally||0) > 0) {
+      g.tally = g.tally - 1;
+    }
+  }
+  // If any goal now below target, boss no longer completed
+  if (state.weeklyBoss.completed) {
+    for (const g of goals) {
+      if ((g.tally||0) < (g.target||0)) { state.weeklyBoss.completed = false; break; }
+    }
+  }
+}
+
+/* =========================
+   Quick Add (+) & Shop drawers
+========================= */
+function openQuickAdd() {
+  renderQuickAdd();
+  $("#drawerQuickAdd").classList.remove("hidden");
+}
+function closeQuickAdd() {
+  $("#drawerQuickAdd").classList.add("hidden");
+}
+
+function renderQuickAdd() {
+  const favRow = $("#quickFavsRow");
+  const favWrap = $("#quickFavs");
+  const grid = $("#quickTaskList");
+  favWrap.innerHTML = "";
+  grid.innerHTML = "";
+
+  const tasks = state.tasks.filter(t=>t.active!==false);
+  if (tasks.length === 0) {
+    const d = document.createElement("div");
+    d.className = "placeholder";
+    d.textContent = "No tasks yet. Add some in Manage → Tasks.";
+    grid.appendChild(d);
+    favRow.classList.add("hidden");
+    return;
+  }
+
+  // Favorites: top 3 tasks by total appearances in logs
+  const counts = new Map();
+  for (const l of state.logs) {
+    if (l.type==='task') counts.set(l.id, (counts.get(l.id)||0) + 1);
+  }
+  const favs = tasks
+    .slice()
+    .sort((a,b)=> (counts.get(b.id)||0) - (counts.get(a.id)||0))
+    .slice(0,3);
+  if (favs.length > 0) {
+    favRow.classList.remove("hidden");
+    for (const t of favs) {
+      const chip = document.createElement("button");
+      chip.className = "quick-chip";
+      chip.textContent = t.name;
+      chip.addEventListener("click", ()=> quickAddTask(t));
+      favWrap.appendChild(chip);
+    }
+  } else {
+    favRow.classList.add("hidden");
+  }
+
+  // All tasks grid
+  for (const t of tasks) {
+    const cap = t.perDayCap || 1;
+    const count = state.today.doneCounts[t.id] || 0;
+    const done = count >= cap;
+
+    const card = document.createElement("button");
+    card.className = "quick-card";
+    card.disabled = done;
+    card.innerHTML = `<div>${t.name}</div><div class="sub">${done ? "Done ✓" : `+${t.points??10} pts`}</div>`;
+    card.addEventListener("click", ()=> quickAddTask(t));
+    grid.appendChild(card);
+  }
+}
+
+async function quickAddTask(t) {
+  const cap = t.perDayCap || 1;
+  const count = state.today.doneCounts[t.id] || 0;
+  if (count >= cap) { toast("Reached today's cap"); return; }
+  state.today.doneCounts[t.id] = count + 1;
+  await grant(t.points ?? 10, t.coinsEarned ?? (t.points ?? 10), t.name, "task", t.id);
+  renderHeader(); renderHome(); renderStats(); renderQuickAdd();
+}
+
+function openShopDrawer() {
+  renderShopDrawer();
+  $("#drawerShop").classList.remove("hidden");
+}
+function closeShopDrawer() {
+  $("#drawerShop").classList.add("hidden");
+}
+function renderShopDrawer() {
+  const wrap = $("#shopDrawerList");
+  wrap.innerHTML = "";
+  const items = state.shop.filter(s=>s.active!==false);
+  if (items.length === 0) {
+    const d = document.createElement("div");
+    d.className = "placeholder";
+    d.textContent = "No rewards yet. Add some in Manage → Shop.";
+    wrap.appendChild(d);
+    return;
+  }
+  for (const s of items) {
+    const row = document.createElement("div");
+    row.className = "shop-card";
+    const title = document.createElement("div");
+    title.className="shop-title"; title.textContent = s.name;
+    const cost = document.createElement("div");
+    cost.className="shop-cost"; cost.textContent = `${s.cost} coins`;
+    const btn = document.createElement("button");
+    btn.className="btn small"; btn.textContent="Buy";
+
+    const cooldown = s.cooldownDays || 0;
+    const last = s.lastBoughtDay || null;
+    const blocked = cooldown>0 && last && dayDiff(state.today.day, last) <= cooldown-1;
+    if (blocked) {
+      btn.disabled = true;
+      cost.textContent += ` • ${cooldown}-day cooldown`;
+    }
+    btn.addEventListener("click", async ()=>{
+      const have = state.profile.coins||0;
+      if (have < (s.cost||0)) { toast("Not enough coins"); vibrate(8); return; }
+      await spend(s.cost||0, s.name, s.id);
+      s.lastBoughtDay = state.today.day;
+      await saveState(state);
+      renderHeader(); renderShopDrawer(); renderStats();
+    });
+
+    row.appendChild(title); row.appendChild(cost); row.appendChild(btn);
+    wrap.appendChild(row);
+  }
+}
+
+/* =========================
+   Manage CRUD (Tasks/Challenges/Shop)
 ========================= */
 function renderAdminList(kind) {
   const targetId = kind==="task" ? "#manageTasks" : kind==="challenge" ? "#manageChallenges" : "#manageShop";
@@ -541,13 +809,11 @@ function openItemModal(kind, existing=null) {
 
   if (kind !== "shop") {
     const points = numberField("Points", existing?.points ?? 10, 1, 999);
-    const coins = numberField("Coins (default = points)", existing?.coinsEarned ?? "", 0, 999, true);
+    const coins = numberField("Coins (optional, default = points)", existing?.coinsEarned ?? "", 0, 999, true);
     const cap = (kind==="task") ? numberField("Per-day cap", existing?.perDayCap ?? 1, 1, 10) : null;
-    const cat = inputField("Category (optional)", existing?.category || "");
     if (cap) mBody.appendChild(cap.wrap);
     mBody.appendChild(points.wrap);
     mBody.appendChild(coins.wrap);
-    mBody.appendChild(cat.wrap);
 
     btnOk.onclick = async ()=>{
       const n = name.input.value.trim();
@@ -558,7 +824,6 @@ function openItemModal(kind, existing=null) {
       const cc = coins.input.value.trim();
       item.coinsEarned = cc==="" ? item.points : clampInt(cc, 0, 999);
       if (cap) item.perDayCap = clampInt(cap.input.value || "1", 1, 10);
-      item.category = cat.input.value.trim() || undefined;
 
       if (!existing) {
         if (kind==="task") state.tasks.push(item);
@@ -595,7 +860,6 @@ function openItemModal(kind, existing=null) {
   btnClose.onclick = closeModal;
 
   modal.classList.remove("hidden");
-  $("#modalCard")?.focus();
 
   function closeModal(){ modal.classList.add("hidden"); }
   function clampInt(v, min, max){ const n = parseInt(v,10); return isNaN(n)?min: Math.max(min, Math.min(max, n)); }
@@ -604,7 +868,7 @@ function openItemModal(kind, existing=null) {
     wrap.style.display="grid"; wrap.style.gap="6px"; wrap.style.color="var(--muted)";
     const input = document.createElement("input"); input.type="text"; input.value = val;
     input.style.background="#0F1630"; input.style.border="1px solid var(--border)"; input.style.color="var(--text)";
-    input.style.borderRadius="10px"; input.style.padding="10px 12px";
+    input.style.borderRadius="10px"; input.style.padding="12px 12px"; input.style.fontSize="16px";
     wrap.appendChild(input); return {wrap, input};
   }
   function numberField(label, val=0, min=0, max=999, allowEmpty=false){
@@ -613,9 +877,96 @@ function openItemModal(kind, existing=null) {
     const input = document.createElement("input"); input.type="number"; if (allowEmpty && val==="") input.value=""; else input.value = String(val);
     input.min = String(min); input.max = String(max);
     input.style.background="#0F1630"; input.style.border="1px solid var(--border)"; input.style.color="var(--text)";
-    input.style.borderRadius="10px"; input.style.padding="10px 12px";
+    input.style.borderRadius="10px"; input.style.padding="12px 12px"; input.style.fontSize="16px";
     wrap.appendChild(input); return {wrap, input};
   }
+}
+
+/* =========================
+   Boss Manage (Templates)
+========================= */
+function renderBossManage() {
+  const wrap = $("#manageBoss");
+  wrap.innerHTML = "";
+
+  if (!state.weeklyBoss.goals || state.weeklyBoss.goals.length===0) {
+    const d = document.createElement("div");
+    d.className = "placeholder";
+    d.textContent = "Use a template above to quickly create a weekly boss (linked to your Tasks).";
+    wrap.appendChild(d);
+    return;
+  }
+  // Show goals summary (read-only for now)
+  for (const g of state.weeklyBoss.goals) {
+    const row = document.createElement("div");
+    row.className = "tile";
+    const meta = document.createElement("div"); meta.className='meta';
+    const t = document.createElement("div"); t.className='title'; t.textContent = g.label;
+    const s = document.createElement("div"); s.className='sub'; s.textContent = `Target: ${g.target} • Linked tasks: ${g.linkedTaskIds.length}`;
+    meta.appendChild(t); meta.appendChild(s);
+    row.appendChild(meta);
+    wrap.appendChild(row);
+  }
+}
+
+async function applyBossTemplate(kind) {
+  // Map by task name for convenience
+  const byName = new Map();
+  for (const t of state.tasks) byName.set(t.name.toLowerCase(), t.id);
+
+  let goals = [];
+  if (kind==="momentum") {
+    // Template expects common task names; if missing, link none (user can rename tasks to match).
+    goals = [
+      {
+        id: uuid(),
+        label: "Talk to 10 people",
+        target: 10,
+        tally: 0,
+        linkedTaskIds: byName.has("talk to someone") ? [byName.get("talk to someone")] : []
+      },
+      {
+        id: uuid(),
+        label: "Focused work 90 min",
+        target: 2, // 2 x 45-min study
+        tally: 0,
+        linkedTaskIds: byName.has("45-min study") ? [byName.get("45-min study")] : []
+      },
+      {
+        id: uuid(),
+        label: "Workouts x3",
+        target: 3,
+        tally: 0,
+        linkedTaskIds: byName.has("full workout") ? [byName.get("full workout")] : []
+      }
+    ];
+  } else if (kind==="social") {
+    goals = [
+      {
+        id: uuid(),
+        label: "Meaningful chats x10",
+        target: 10,
+        tally: 0,
+        linkedTaskIds: byName.has("talk to someone") ? [byName.get("talk to someone")] : []
+      },
+      {
+        id: uuid(),
+        label: "Call family x2",
+        target: 2,
+        tally: 0,
+        linkedTaskIds: byName.has("call parents") ? [byName.get("call parents")] : []
+      }
+    ];
+  }
+
+  const gd = state.today.day || todayLocalDateStringAt(state.settings.resetHour);
+  state.weeklyBoss.weekStartDay = weekStart(gd);
+  state.weeklyBoss.goals = goals;
+  state.weeklyBoss.completed = false;
+
+  await saveState(state);
+  renderBoss(); renderBossManage();
+  toast("Boss template applied");
 }
 
 /* =========================
@@ -623,10 +974,10 @@ function openItemModal(kind, existing=null) {
 ========================= */
 async function onSettingChanged() {
   state.settings.resetHour = clampInt($("#inpResetHour").value || "4", 0, 23);
-  state.settings.rerollCost = clampInt($("#inpRerollCost").value || "20", 0, 999);
   state.settings.haptics = !!$("#chkHaptics").checked;
   await saveState(state);
   toast("Saved");
+  ensureGameDayRoll();
   renderAll();
 
   function clampInt(v, min, max){ const n = parseInt(v,10); return isNaN(n)?min: Math.max(min, Math.min(max, n)); }
@@ -649,7 +1000,7 @@ async function onImport(e) {
   const text = await f.text();
   try {
     const obj = await importJSON(text);
-    state = obj;
+    state = migrateToV2(obj);
     ensureGameDayRoll();
     renderAll();
     toast("Imported");
@@ -663,7 +1014,7 @@ async function onImport(e) {
 async function onWipe() {
   if (!confirm("This will erase all data. Continue?")) return;
   await clearAll();
-  state = defaultState();
+  state = defaultStateV2();
   ensureGameDayRoll();
   await saveState(state);
   renderAll();
