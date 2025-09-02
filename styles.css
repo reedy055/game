@@ -182,3 +182,69 @@ input[type="text"],input[type="number"]{
 .modal-body{display:grid; gap:10px; padding:6px 2px}
 .modal-actions{display:flex; gap:10px; justify-content:flex-end; padding-top:6px}
 .file input[type=file]{display:none}
+
+/* ===== Patch: fixed tabbar, FAB, sheets, app-like feel ===== */
+html, body { height: 100%; overscroll-behavior: none; -webkit-text-size-adjust: 100%; }
+button, .btn, .tab, .pill { touch-action: manipulation; }
+
+.app-main { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
+
+.tabbar{
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  height: 72px; padding-bottom: env(safe-area-inset-bottom);
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  background: rgba(13,19,38,.85);
+  backdrop-filter: blur(10px);
+  border-top:1px solid rgba(255,255,255,.06);
+}
+.tab{ font-weight:700; color:var(--muted); border:none; background:transparent; }
+.tab.active{ color:var(--text); border-top:2px solid var(--primary) }
+
+.fab{
+  position: fixed; left: 50%;
+  bottom: calc(72px + env(safe-area-inset-bottom) - 28px);
+  transform: translateX(-50%);
+  width:64px; height:64px; border-radius:999px;
+  background: radial-gradient(100px 80px at 50% 20%, #6BA0FF, #4466CC);
+  color:white; font-size:32px; line-height:64px; text-align:center; font-weight:900;
+  box-shadow: 0 10px 30px rgba(0,0,0,.4), 0 0 30px rgba(91,140,255,.45) inset;
+  border: 2px solid rgba(255,255,255,.1);
+}
+.fab:active{ transform: translateX(-50%) scale(.98); }
+
+.sheet.hidden{ display: none; }
+.sheet{ position: fixed; inset: 0; z-index: 30; }
+.sheet-overlay{
+  position:absolute; inset:0; background: rgba(0,0,0,.45);
+}
+.sheet-panel{
+  position:absolute; left:0; right:0; bottom:0;
+  max-height: 74vh; overflow:auto;
+  background: linear-gradient(180deg, var(--surface), #0f1426);
+  border-top-left-radius: 20px; border-top-right-radius: 20px;
+  border-top:1px solid var(--border);
+  padding:14px;
+  box-shadow: 0 -10px 30px rgba(0,0,0,.35);
+}
+.sheet-head{
+  display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;
+}
+.qa-list{
+  display: grid; grid-auto-flow: column;
+  grid-auto-columns: minmax(160px, 1fr);
+  gap:10px; overflow-x:auto; padding-bottom:8px; scrollbar-width:none;
+}
+.qa-list::-webkit-scrollbar{ display:none; }
+
+.qa-pick{
+  min-width:160px; background: linear-gradient(180deg, #0F1630, #0B1126);
+  border:1px solid var(--border); border-radius:14px; padding:12px;
+  display:flex; flex-direction:column; gap:6px; justify-content:space-between;
+}
+.qa-title{ font-weight:700 }
+.qa-sub{ font-size:12px; color:var(--muted) }
+.qa-btn{ align-self:flex-end }
+
+.completed-badge{
+  font-size:12px; color: var(--muted);
+}
