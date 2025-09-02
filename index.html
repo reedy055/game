@@ -2,24 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <!-- Disable zoom feel; safe areas for iOS -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <!-- App-like feel: disable zoom, support safe areas -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1" />
   <meta name="theme-color" content="#0F172A" />
   <title>LifeRPG</title>
 
-  <!-- Manifest (PWA) -->
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="assets/favicon.png" />
+  <link rel="apple-touch-icon" href="assets/icon-192.png" />
 
-  <link rel="preload" href="styles.css" as="style">
-  <link rel="stylesheet" href="styles.css">
+  <!-- Styles -->
+  <link rel="preload" href="styles.css" as="style" />
+  <link rel="stylesheet" href="styles.css" />
   <style>
     body{background:#0B0F1A;color:#E6E9F2;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;margin:0}
   </style>
 </head>
 <body>
   <div id="app">
+
     <!-- Header / Hero -->
     <header class="app-header">
       <div class="hero">
@@ -31,8 +33,7 @@
           <button class="pill" id="pillStreak" data-nav="statsView" title="View stats">
             <span class="emoji">🔥</span><span id="statStreak">0</span>
           </button>
-          <!-- Coins now opens Shop drawer -->
-          <button class="pill" id="pillCoins" title="Open Shop">
+          <button class="pill" id="pillCoins" title="Open shop">
             <span class="emoji">🪙</span><span id="statCoins">0</span>
           </button>
         </div>
@@ -40,26 +41,29 @@
       </div>
     </header>
 
+    <!-- Main Views -->
     <main class="app-main">
+
       <!-- HOME -->
       <section id="homeView" class="view active" role="region" aria-label="Home">
-        <!-- Daily Challenges (fixed 3, no reroll) -->
+        <!-- Daily Challenges -->
         <div class="card">
           <div class="card-head">
             <h3>Daily Challenges</h3>
+            <!-- Reroll removed by design -->
           </div>
           <div id="dailyList" class="list three-cards">
             <div class="placeholder">Your 3 challenges will appear here.</div>
           </div>
         </div>
 
-        <!-- Completed Today feed (replaces Tasks list) -->
+        <!-- Completed Today (replaces Tasks list on Home) -->
         <div class="card">
           <div class="card-head">
             <h3>Completed Today</h3>
           </div>
           <div id="completedList" class="list">
-            <div class="placeholder">Nothing yet. Tap the + button to add tasks.</div>
+            <div class="placeholder">Nothing yet. Tap the big “+” to add a task.</div>
           </div>
         </div>
       </section>
@@ -92,6 +96,7 @@
 
       <!-- MANAGE -->
       <section id="manageView" class="view" role="region" aria-label="Manage">
+        <!-- Tasks -->
         <div class="card">
           <div class="card-head">
             <h3>Tasks</h3>
@@ -101,6 +106,7 @@
             <div class="placeholder">No tasks yet. Click “+ Add”.</div>
           </div>
         </div>
+        <!-- Challenges -->
         <div class="card">
           <div class="card-head">
             <h3>Challenge Pool</h3>
@@ -110,6 +116,7 @@
             <div class="placeholder">No challenges yet. Click “+ Add”.</div>
           </div>
         </div>
+        <!-- Shop -->
         <div class="card">
           <div class="card-head">
             <h3>Shop Items</h3>
@@ -129,9 +136,7 @@
             <label>Reset hour (0–23)
               <input id="inpResetHour" type="number" min="0" max="23" value="4">
             </label>
-            <label>Reroll cost (coins)
-              <input id="inpRerollCost" type="number" min="0" max="999" value="20">
-            </label>
+            <!-- Reroll cost field removed -->
             <label class="row">
               <input id="chkHaptics" type="checkbox" checked>
               <span>Haptics</span>
@@ -156,9 +161,10 @@
           <p class="muted">LifeRPG — offline, private, installable. Built with vanilla JS & IndexedDB. Host: GitHub Pages.</p>
         </div>
       </section>
+
     </main>
 
-    <!-- Fixed Bottom Tab Bar -->
+    <!-- Bottom Tab Bar (fixed) -->
     <nav class="tabbar" role="tablist">
       <button class="tab active" data-target="homeView" aria-selected="true">Home</button>
       <button class="tab" data-target="statsView">Stats</button>
@@ -166,13 +172,13 @@
       <button class="tab" data-target="settingsView">Settings</button>
     </nav>
 
-    <!-- Big Center "+" -->
-    <button id="fabAdd" class="fab" aria-label="Quick add">＋</button>
+    <!-- Center FAB -->
+    <button id="fabAdd" class="fab" aria-label="Quick Add">+</button>
 
     <!-- Toast -->
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-    <!-- Edit/Add Modal (Manage) -->
+    <!-- Centered Modal (used for Manage add/edit) -->
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <div class="modal-card">
         <div class="modal-head">
@@ -187,33 +193,17 @@
       </div>
     </div>
 
-    <!-- Quick Add Sheet -->
-    <div id="qaSheet" class="sheet hidden" aria-modal="true" role="dialog" aria-labelledby="qaTitle">
-      <div class="sheet-overlay" data-close="qaSheet"></div>
-      <div class="sheet-panel">
+    <!-- Bottom Sheet (Quick Add / Shop) -->
+    <div id="sheet" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+      <div class="sheet-card">
         <div class="sheet-head">
-          <h3 id="qaTitle">Quick Add</h3>
-          <button class="icon-btn" data-close="qaSheet">✕</button>
+          <h3 id="sheetTitle">Title</h3>
+          <button id="sheetClose" class="icon-btn" aria-label="Close">✕</button>
         </div>
-        <div id="qaList" class="qa-list">
-          <!-- Task pills render here -->
-        </div>
+        <div id="sheetBody" class="sheet-body"></div>
       </div>
     </div>
 
-    <!-- Shop Sheet -->
-    <div id="shopSheet" class="sheet hidden" aria-modal="true" role="dialog" aria-labelledby="shopTitle">
-      <div class="sheet-overlay" data-close="shopSheet"></div>
-      <div class="sheet-panel">
-        <div class="sheet-head">
-          <h3 id="shopTitle">Shop</h3>
-          <button class="icon-btn" data-close="shopSheet">✕</button>
-        </div>
-        <div id="shopDrawerList" class="list horizontal">
-          <!-- Shop items render here -->
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- Scripts -->
@@ -221,11 +211,11 @@
     import "./app.js";
   </script>
   <script>
-    // Register SW (kept)
+    // Register SW
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(()=>{});
     }
-    // Fallback tab wiring
+    // Basic tab fallback
     (function(){
       const tabs = document.querySelectorAll('.tabbar .tab');
       const views = document.querySelectorAll('.view');
