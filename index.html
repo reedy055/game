@@ -2,21 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- Disable zoom feel; safe areas for iOS -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0F172A" />
   <title>LifeRPG</title>
 
   <!-- Manifest (PWA) -->
   <link rel="manifest" href="manifest.webmanifest">
-  <!-- Favicon + iOS icon (optional; upload assets later in /assets) -->
   <link rel="icon" type="image/png" href="assets/favicon.png">
   <link rel="apple-touch-icon" href="assets/icon-192.png">
 
-  <!-- Styles -->
   <link rel="preload" href="styles.css" as="style">
   <link rel="stylesheet" href="styles.css">
   <style>
-    /* Minimal inline fallback so the initial page isn't raw while CSS loads */
     body{background:#0B0F1A;color:#E6E9F2;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;margin:0}
   </style>
 </head>
@@ -33,48 +31,35 @@
           <button class="pill" id="pillStreak" data-nav="statsView" title="View stats">
             <span class="emoji">🔥</span><span id="statStreak">0</span>
           </button>
-          <div class="pill">
+          <!-- Coins now opens Shop drawer -->
+          <button class="pill" id="pillCoins" title="Open Shop">
             <span class="emoji">🪙</span><span id="statCoins">0</span>
-          </div>
+          </button>
         </div>
         <div class="xpbar"><div id="xpFill" style="width:0%"></div></div>
       </div>
     </header>
 
-    <!-- Main Views -->
     <main class="app-main">
-
       <!-- HOME -->
       <section id="homeView" class="view active" role="region" aria-label="Home">
-        <!-- Daily Challenges -->
+        <!-- Daily Challenges (fixed 3, no reroll) -->
         <div class="card">
           <div class="card-head">
             <h3>Daily Challenges</h3>
-            <button id="btnReroll" class="btn ghost small" disabled>↻ Reroll</button>
           </div>
           <div id="dailyList" class="list three-cards">
-            <!-- JS will render 3 cards here -->
             <div class="placeholder">Your 3 challenges will appear here.</div>
           </div>
         </div>
 
-        <!-- Tasks -->
+        <!-- Completed Today feed (replaces Tasks list) -->
         <div class="card">
           <div class="card-head">
-            <h3>Tasks</h3>
+            <h3>Completed Today</h3>
           </div>
-          <div id="taskList" class="list">
-            <div class="placeholder">Add tasks in Manage → Tasks.</div>
-          </div>
-        </div>
-
-        <!-- Shop -->
-        <div class="card">
-          <div class="card-head">
-            <h3>Shop</h3>
-          </div>
-          <div id="shopList" class="list horizontal">
-            <div class="placeholder">Create rewards in Manage → Shop.</div>
+          <div id="completedList" class="list">
+            <div class="placeholder">Nothing yet. Tap the + button to add tasks.</div>
           </div>
         </div>
       </section>
@@ -107,7 +92,6 @@
 
       <!-- MANAGE -->
       <section id="manageView" class="view" role="region" aria-label="Manage">
-        <!-- Tasks -->
         <div class="card">
           <div class="card-head">
             <h3>Tasks</h3>
@@ -117,7 +101,6 @@
             <div class="placeholder">No tasks yet. Click “+ Add”.</div>
           </div>
         </div>
-        <!-- Challenges -->
         <div class="card">
           <div class="card-head">
             <h3>Challenge Pool</h3>
@@ -127,7 +110,6 @@
             <div class="placeholder">No challenges yet. Click “+ Add”.</div>
           </div>
         </div>
-        <!-- Shop -->
         <div class="card">
           <div class="card-head">
             <h3>Shop Items</h3>
@@ -174,10 +156,9 @@
           <p class="muted">LifeRPG — offline, private, installable. Built with vanilla JS & IndexedDB. Host: GitHub Pages.</p>
         </div>
       </section>
-
     </main>
 
-    <!-- Bottom Tab Bar -->
+    <!-- Fixed Bottom Tab Bar -->
     <nav class="tabbar" role="tablist">
       <button class="tab active" data-target="homeView" aria-selected="true">Home</button>
       <button class="tab" data-target="statsView">Stats</button>
@@ -185,9 +166,13 @@
       <button class="tab" data-target="settingsView">Settings</button>
     </nav>
 
-    <!-- Toast / Modal placeholders -->
+    <!-- Big Center "+" -->
+    <button id="fabAdd" class="fab" aria-label="Quick add">＋</button>
+
+    <!-- Toast -->
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+    <!-- Edit/Add Modal (Manage) -->
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <div class="modal-card">
         <div class="modal-head">
@@ -201,18 +186,46 @@
         </div>
       </div>
     </div>
+
+    <!-- Quick Add Sheet -->
+    <div id="qaSheet" class="sheet hidden" aria-modal="true" role="dialog" aria-labelledby="qaTitle">
+      <div class="sheet-overlay" data-close="qaSheet"></div>
+      <div class="sheet-panel">
+        <div class="sheet-head">
+          <h3 id="qaTitle">Quick Add</h3>
+          <button class="icon-btn" data-close="qaSheet">✕</button>
+        </div>
+        <div id="qaList" class="qa-list">
+          <!-- Task pills render here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Shop Sheet -->
+    <div id="shopSheet" class="sheet hidden" aria-modal="true" role="dialog" aria-labelledby="shopTitle">
+      <div class="sheet-overlay" data-close="shopSheet"></div>
+      <div class="sheet-panel">
+        <div class="sheet-head">
+          <h3 id="shopTitle">Shop</h3>
+          <button class="icon-btn" data-close="shopSheet">✕</button>
+        </div>
+        <div id="shopDrawerList" class="list horizontal">
+          <!-- Shop items render here -->
+        </div>
+      </div>
+    </div>
   </div>
 
-   <!-- Scripts -->
+  <!-- Scripts -->
   <script type="module">
     import "./app.js";
   </script>
   <script>
-    // Register SW early (kept from chunk 1)
+    // Register SW (kept)
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(()=>{});
     }
-    // Fallback tab wiring if app.js hasn't run yet
+    // Fallback tab wiring
     (function(){
       const tabs = document.querySelectorAll('.tabbar .tab');
       const views = document.querySelectorAll('.view');
@@ -224,31 +237,6 @@
           views.forEach(v=>v.classList.toggle('active', v.id===id));
         });
       });
-    })();
-  </script>
-</body>
-</html>
-
-  <script>
-    // Minimal nav wiring so tabs switch even before app.js arrives
-    (function(){
-      const tabs = document.querySelectorAll('.tabbar .tab');
-      const views = document.querySelectorAll('.view');
-      tabs.forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-          tabs.forEach(b=>b.classList.remove('active'));
-          btn.classList.add('active');
-          const id = btn.getAttribute('data-target');
-          views.forEach(v=>v.classList.toggle('active', v.id===id));
-          // focus for a11y
-          document.getElementById(id).setAttribute('tabindex','-1');
-          document.getElementById(id).focus({preventScroll:true});
-        });
-      });
-      // register service worker
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js').catch(()=>{});
-      }
     })();
   </script>
 </body>
