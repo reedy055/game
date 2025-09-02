@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F172A" />
+  <title>LifeRPG</title>
+
+  <!-- Manifest (PWA) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <!-- Favicon + iOS icon (optional; upload assets later in /assets) -->
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+
+  <!-- Styles -->
+  <link rel="preload" href="styles.css" as="style">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Minimal inline fallback so the initial page isn't raw while CSS loads */
+    body{background:#0B0F1A;color:#E6E9F2;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;margin:0}
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Header / Hero -->
+    <header class="app-header">
+      <div class="hero">
+        <div class="points">
+          <div class="points-label">Points Today</div>
+          <div id="statPoints" class="points-value">0</div>
+        </div>
+        <div class="pills">
+          <button class="pill" id="pillStreak" data-nav="statsView" title="View stats">
+            <span class="emoji">🔥</span><span id="statStreak">0</span>
+          </button>
+          <div class="pill">
+            <span class="emoji">🪙</span><span id="statCoins">0</span>
+          </div>
+        </div>
+        <div class="xpbar"><div id="xpFill" style="width:0%"></div></div>
+      </div>
+    </header>
+
+    <!-- Main Views -->
+    <main class="app-main">
+
+      <!-- HOME -->
+      <section id="homeView" class="view active" role="region" aria-label="Home">
+        <!-- Daily Challenges -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Daily Challenges</h3>
+            <button id="btnReroll" class="btn ghost small" disabled>↻ Reroll</button>
+          </div>
+          <div id="dailyList" class="list three-cards">
+            <!-- JS will render 3 cards here -->
+            <div class="placeholder">Your 3 challenges will appear here.</div>
+          </div>
+        </div>
+
+        <!-- Tasks -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Tasks</h3>
+          </div>
+          <div id="taskList" class="list">
+            <div class="placeholder">Add tasks in Manage → Tasks.</div>
+          </div>
+        </div>
+
+        <!-- Shop -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Shop</h3>
+          </div>
+          <div id="shopList" class="list horizontal">
+            <div class="placeholder">Create rewards in Manage → Shop.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- STATS -->
+      <section id="statsView" class="view" role="region" aria-label="Stats">
+        <div class="grid two">
+          <div class="card">
+            <div class="card-head">
+              <h3>Streak</h3>
+            </div>
+            <div class="streak-wrap">
+              <div class="streak-badge"><span>🔥</span><span id="streakBig">0</span></div>
+              <div class="streak-meta">
+                <div>Best: <strong id="bestStreak">0</strong></div>
+                <div>Completions/week: <strong id="cmpWeek">0</strong></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>30-Day Points</h3></div>
+            <canvas id="bar30" width="600" height="260" aria-label="30 day points bar chart"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Calendar (90 days)</h3></div>
+          <div id="heatmap" class="heatmap" aria-label="calendar heatmap"></div>
+        </div>
+      </section>
+
+      <!-- MANAGE -->
+      <section id="manageView" class="view" role="region" aria-label="Manage">
+        <!-- Tasks -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Tasks</h3>
+            <button id="btnAddTask" class="btn small">+ Add</button>
+          </div>
+          <div id="manageTasks" class="list admin">
+            <div class="placeholder">No tasks yet. Click “+ Add”.</div>
+          </div>
+        </div>
+        <!-- Challenges -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Challenge Pool</h3>
+            <button id="btnAddChallenge" class="btn small">+ Add</button>
+          </div>
+          <div id="manageChallenges" class="list admin">
+            <div class="placeholder">No challenges yet. Click “+ Add”.</div>
+          </div>
+        </div>
+        <!-- Shop -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Shop Items</h3>
+            <button id="btnAddShop" class="btn small">+ Add</button>
+          </div>
+          <div id="manageShop" class="list admin">
+            <div class="placeholder">No rewards yet. Click “+ Add”.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="settingsView" class="view" role="region" aria-label="Settings">
+        <div class="card">
+          <div class="card-head"><h3>Game Settings</h3></div>
+          <div class="form">
+            <label>Reset hour (0–23)
+              <input id="inpResetHour" type="number" min="0" max="23" value="4">
+            </label>
+            <label>Reroll cost (coins)
+              <input id="inpRerollCost" type="number" min="0" max="999" value="20">
+            </label>
+            <label class="row">
+              <input id="chkHaptics" type="checkbox" checked>
+              <span>Haptics</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Data</h3></div>
+          <div class="row wrap">
+            <button id="btnExport" class="btn ghost">Export JSON</button>
+            <label class="file">
+              <input id="fileImport" type="file" accept="application/json">
+              <span class="btn">Import JSON</span>
+            </label>
+            <button id="btnWipe" class="btn danger">Wipe All Data</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>About</h3></div>
+          <p class="muted">LifeRPG — offline, private, installable. Built with vanilla JS & IndexedDB. Host: GitHub Pages.</p>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Tab Bar -->
+    <nav class="tabbar" role="tablist">
+      <button class="tab active" data-target="homeView" aria-selected="true">Home</button>
+      <button class="tab" data-target="statsView">Stats</button>
+      <button class="tab" data-target="manageView">Manage</button>
+      <button class="tab" data-target="settingsView">Settings</button>
+    </nav>
+
+    <!-- Toast / Modal placeholders -->
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 id="modalTitle">Modal</h3>
+          <button id="modalClose" class="icon-btn" aria-label="Close">✕</button>
+        </div>
+        <div id="modalBody" class="modal-body"></div>
+        <div class="modal-actions">
+          <button id="modalCancel" class="btn ghost">Cancel</button>
+          <button id="modalOk" class="btn">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- NOTE: We will add app.js/db.js/charts.js in the next chunk -->
+  <script>
+    // Minimal nav wiring so tabs switch even before app.js arrives
+    (function(){
+      const tabs = document.querySelectorAll('.tabbar .tab');
+      const views = document.querySelectorAll('.view');
+      tabs.forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          tabs.forEach(b=>b.classList.remove('active'));
+          btn.classList.add('active');
+          const id = btn.getAttribute('data-target');
+          views.forEach(v=>v.classList.toggle('active', v.id===id));
+          // focus for a11y
+          document.getElementById(id).setAttribute('tabindex','-1');
+          document.getElementById(id).focus({preventScroll:true});
+        });
+      });
+      // register service worker
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(()=>{});
+      }
+    })();
+  </script>
+</body>
+</html>
