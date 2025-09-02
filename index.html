@@ -2,27 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <!-- Disable zoom for app-like feel; we also keep font-size >=16px in inputs later -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1" />
+  <!-- Make it feel like a native app -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0F172A" />
-  <meta name="format-detection" content="telephone=no" />
   <title>LifeRPG</title>
 
   <!-- Manifest (PWA) -->
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" type="image/png" href="assets/favicon.png" />
+  <link rel="apple-touch-icon" href="assets/icon-192.png" />
 
   <!-- Styles -->
-  <link rel="preload" href="styles.css" as="style">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="preload" href="styles.css" as="style" />
+  <link rel="stylesheet" href="styles.css" />
   <style>
-    /* Minimal inline fallback so it isn't raw before CSS loads */
+    /* Minimal inline fallback while CSS loads */
     body{background:#0B0F1A;color:#E6E9F2;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif;margin:0}
   </style>
 </head>
 <body>
   <div id="app">
+    <!-- Optional milestone banner (hidden until triggered in JS) -->
+    <div id="banner" class="banner hidden" role="status" aria-live="polite"></div>
 
     <!-- Header / Hero -->
     <header class="app-header">
@@ -35,7 +37,7 @@
           <button class="pill" id="pillStreak" data-nav="statsView" title="View stats">
             <span class="emoji">🔥</span><span id="statStreak">0</span>
           </button>
-          <!-- Coins pill opens the Shop drawer -->
+          <!-- Coins pill is now a button; clicking will open the Shop drawer (wired next) -->
           <button class="pill" id="pillCoins" title="Open Shop">
             <span class="emoji">🪙</span><span id="statCoins">0</span>
           </button>
@@ -49,59 +51,45 @@
 
       <!-- HOME -->
       <section id="homeView" class="view active" role="region" aria-label="Home">
-        <!-- Daily Challenges (fixed 3/day; reroll removed) -->
+        <!-- Daily Challenges (no reroll UI visible; button kept for backward compatibility but hidden) -->
         <div class="card">
           <div class="card-head">
             <h3>Daily Challenges</h3>
-            <!-- keep legacy btnReroll to avoid breaking current app.js; hidden -->
-            <button id="btnReroll" class="btn ghost small" style="display:none" disabled>↻ Reroll</button>
+            <button id="btnReroll" class="btn ghost small" style="display:none">↻ Reroll</button>
           </div>
           <div id="dailyList" class="list three-cards">
             <div class="placeholder">Your 3 challenges will appear here.</div>
           </div>
         </div>
 
-        <!-- Weekly Boss Quest (new) -->
+        <!-- Weekly Boss Quest (new; wired in next subsection) -->
         <div class="card" id="bossCard">
-          <div class="card-head">
-            <h3>Weekly Boss</h3>
-            <button id="btnBossDetails" class="btn ghost small">Details</button>
-          </div>
-          <div class="row" style="gap:16px; align-items:center; flex-wrap:wrap">
-            <!-- Boss ring placeholder (canvas or SVG will render later) -->
-            <div id="bossRing" aria-label="Weekly Boss Progress" style="width:120px;height:120px;border-radius:50%;background:rgba(91,140,255,.06);display:flex;align-items:center;justify-content:center;font-weight:800">0%</div>
-            <div style="flex:1;min-width:220px">
-              <div id="bossGoals" class="list">
-                <div class="placeholder">Set up boss goals in Manage → Boss (coming next patch).</div>
-              </div>
+          <div class="card-head"><h3>Weekly Boss</h3></div>
+          <div class="boss-wrap">
+            <canvas id="bossRing" width="220" height="220" aria-label="Weekly boss progress"></canvas>
+            <div id="bossGoals" class="boss-goals">
+              <div class="placeholder">Set sub-goals in Manage → Boss (coming next).</div>
             </div>
           </div>
         </div>
 
-        <!-- Completed Today (new) -->
-        <div class="card">
-          <div class="card-head">
-            <h3>Completed Today</h3>
-          </div>
-          <div id="completedList" class="list">
-            <div class="placeholder">Nothing yet. Tap the <strong>+</strong> to log a task.</div>
+        <!-- Completed Today feed (new UI; will be populated in next subsection) -->
+        <div class="card" id="completedCard">
+          <div class="card-head"><h3>Completed Today</h3></div>
+          <div id="feedToday" class="list">
+            <div class="placeholder">When you complete tasks/challenges, they’ll appear here.</div>
           </div>
         </div>
 
-        <!-- Legacy sections kept hidden to avoid breaking existing JS until next patches -->
-        <div class="card" style="display:none">
-          <div class="card-head"><h3>Tasks (legacy)</h3></div>
+        <!-- (Legacy) Tasks list still present so current app keeps working until JS is updated -->
+        <div class="card" id="legacyTasksCard">
+          <div class="card-head"><h3>Tasks (legacy view)</h3></div>
           <div id="taskList" class="list">
-            <div class="placeholder">Hidden (replaced by Quick Add + Completed Today).</div>
+            <div class="placeholder">Add tasks in Manage → Tasks.</div>
           </div>
         </div>
 
-        <div class="card" style="display:none">
-          <div class="card-head"><h3>Shop (legacy)</h3></div>
-          <div id="shopList" class="list horizontal">
-            <div class="placeholder">Hidden (open via Coins pill).</div>
-          </div>
-        </div>
+        <!-- (Removed from Home) Shop section is gone; Shop will open from Coins pill -->
       </section>
 
       <!-- STATS -->
@@ -162,7 +150,17 @@
             <div class="placeholder">No rewards yet. Click “+ Add”.</div>
           </div>
         </div>
-        <!-- (Boss manage UI will be added in next JS patch; no static HTML needed here) -->
+        <!-- Weekly Boss (editor) — will be wired in the JS update -->
+        <div class="card">
+          <div class="card-head">
+            <h3>Boss Quest (Weekly)</h3>
+            <button id="btnBossTemplate1" class="btn ghost small">Use “Momentum” Template</button>
+            <button id="btnBossTemplate2" class="btn ghost small">Use “Social” Template</button>
+          </div>
+          <div id="manageBoss" class="list admin">
+            <div class="placeholder">Define 2–4 sub-goals and link them to tasks. (Wired next.)</div>
+          </div>
+        </div>
       </section>
 
       <!-- SETTINGS -->
@@ -172,9 +170,6 @@
           <div class="form">
             <label>Reset hour (0–23)
               <input id="inpResetHour" type="number" min="0" max="23" value="4">
-            </label>
-            <label>Reroll cost (coins)
-              <input id="inpRerollCost" type="number" min="0" max="999" value="20">
             </label>
             <label class="row">
               <input id="chkHaptics" type="checkbox" checked>
@@ -203,25 +198,22 @@
 
     </main>
 
-    <!-- Bottom Tab Bar (now fixed) -->
-    <nav class="tabbar" role="tablist" aria-label="Primary">
+    <!-- Bottom Tab Bar (fixed). Center + is inside the bar (bigger, circular). -->
+    <nav class="tabbar" role="tablist">
       <button class="tab active" data-target="homeView" aria-selected="true">Home</button>
       <button class="tab" data-target="statsView">Stats</button>
 
-      <!-- Center FAB slot (visual; actual FAB is separate element to overlap) -->
-      <div class="tab spacer" aria-hidden="true"></div>
+      <!-- Center "+" (not a tab); opens Quick Add drawer -->
+      <button id="tabAdd" class="tab-plus" aria-label="Quick Add">+</button>
 
       <button class="tab" data-target="manageView">Manage</button>
       <button class="tab" data-target="settingsView">Settings</button>
     </nav>
 
-    <!-- Floating Center FAB (+) -->
-    <button id="fabAdd" class="fab" aria-label="Quick Add">＋</button>
-
     <!-- Toast -->
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-    <!-- Generic Modal (still used by Manage forms) -->
+    <!-- Modal (edit/add forms) -->
     <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <div class="modal-card">
         <div class="modal-head">
@@ -236,37 +228,36 @@
       </div>
     </div>
 
-    <!-- Bottom Sheet: Quick Add -->
+    <!-- Quick Add Drawer (hidden until wired) -->
     <div id="drawerQuickAdd" class="drawer hidden" role="dialog" aria-modal="true" aria-labelledby="qaTitle">
       <div class="drawer-card">
         <div class="drawer-head">
-          <div class="grab"></div>
           <h3 id="qaTitle">Quick Add</h3>
-          <button id="qaClose" class="icon-btn" aria-label="Close">✕</button>
+          <button id="drawerQuickClose" class="icon-btn" aria-label="Close">✕</button>
         </div>
-        <!-- Favorites row (auto top 3) -->
-        <div id="quickFavs" class="list horizontal" style="margin:8px 0"></div>
-        <!-- All tasks (active) -->
-        <div id="quickTasks" class="list horizontal" style="margin-bottom:8px">
-          <div class="placeholder">No tasks yet — add some in Manage → Tasks.</div>
+        <div id="quickFavsRow" class="quick-row hidden">
+          <div class="quick-title">Favorites</div>
+          <div id="quickFavs" class="quick-chips"></div>
+        </div>
+        <div class="quick-title">All Tasks</div>
+        <div id="quickTaskList" class="quick-grid">
+          <div class="placeholder">Add tasks in Manage → Tasks, then tap +</div>
         </div>
       </div>
     </div>
 
-    <!-- Bottom Sheet: Shop -->
+    <!-- Shop Drawer (from Coins pill) -->
     <div id="drawerShop" class="drawer hidden" role="dialog" aria-modal="true" aria-labelledby="shopTitle">
       <div class="drawer-card">
         <div class="drawer-head">
-          <div class="grab"></div>
           <h3 id="shopTitle">Shop</h3>
-          <button id="shopClose" class="icon-btn" aria-label="Close">✕</button>
+          <button id="drawerShopClose" class="icon-btn" aria-label="Close">✕</button>
         </div>
-        <div id="shopDrawerList" class="list horizontal">
-          <div class="placeholder">No rewards yet — add some in Manage → Shop.</div>
+        <div id="shopDrawerList" class="shop-drawer-list">
+          <div class="placeholder">No rewards yet. Add some in Manage → Shop.</div>
         </div>
       </div>
     </div>
-
   </div>
 
   <!-- Scripts -->
@@ -278,19 +269,22 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(()=>{});
     }
-    // Tab switching fallback if app.js hasn't run yet
+    // Fallback tab wiring if app.js hasn't run yet (the center "+" is NOT a tab)
     (function(){
       const tabs = document.querySelectorAll('.tabbar .tab');
       const views = document.querySelectorAll('.view');
       tabs.forEach(btn=>{
         btn.addEventListener('click', ()=>{
-          if (btn.classList.contains('spacer')) return;
           tabs.forEach(b=>b.classList.remove('active'));
           btn.classList.add('active');
           const id = btn.getAttribute('data-target');
           views.forEach(v=>v.classList.toggle('active', v.id===id));
+          // focus for a11y
+          const el = document.getElementById(id);
+          if (el) { el.setAttribute('tabindex','-1'); el.focus({preventScroll:true}); }
         });
       });
+      // The center "+" will be wired in app.js — no-op for now
     })();
   </script>
 </body>
