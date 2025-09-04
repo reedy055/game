@@ -1,101 +1,153 @@
-// charts.js — lightweight renderers (no libs)
+// charts.js — v4 visuals
+// Exports:
+//   renderBarChart(canvas, values:number[])
+//   renderCalendarHeatmap(containerEl, progress:{[day:string]:{points:number}})
 
-// --- 30-day bar chart ---
-export function renderBarChart(canvas, values = [], opts = {}) {
+export function renderBarChart(canvas, values) {
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
+
   // Clear
-  ctx.clearRect(0,0,W,H);
+  ctx.clearRect(0, 0, W, H);
 
-  // Theme
-  const bg = "#1e1e2f";
-  const grid = "rgba(255,255,255,0.08)";
-  const bar = "#5B8CFF";
-  const label = "rgba(230,233,242,0.8)";
+  // Layout
+  const padL = 18, padR = 8, padT = 12, padB = 28;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
 
-  // Padding
-  const PAD_L = 28, PAD_R = 10, PAD_T = 16, PAD_B = 24;
+  // Scales
+  const maxVal = Math.max(1, ...values);
+  const stepX = innerW / Math.max(1, values.length);
+  const barGap = Math.min(8, stepX * 0.25);
+  const barW = Math.max(2, stepX - barGap);
+  const radius = Math.min(10, barW * 0.45);
 
-  // Background
-  ctx.fillStyle = bg;
-  roundRect(ctx, 0, 0, W, H, 10);
-  ctx.fill();
-
-  // Axes/grid
-  const maxVal = Math.max(10, Math.max(...values, 0));
-  const steps = 4;
-  ctx.strokeStyle = grid;
+  // Gridlines (0, 25, 50, 75, 100%)
+  ctx.save();
+  ctx.translate(padL, padT);
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let i = 0; i <= steps; i++) {
-    const y = PAD_T + (H-PAD_T-PAD_B) * (i/steps);
-    ctx.moveTo(PAD_L, y);
-    ctx.lineTo(W-PAD_R, y);
+  for (let p = 0; p <= 1.0001; p += 0.25) {
+    const y = innerH - p * innerH + 0.5; // crisp line
+    ctx.strokeStyle = "rgba(230,233,242,0.08)";
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(innerW, y);
+    ctx.stroke();
   }
-  ctx.stroke();
 
   // Bars
-  const n = values.length;
-  if (n === 0) return;
-  const usableW = W - PAD_L - PAD_R;
-  const gap = 2;
-  const barW = Math.max(2, Math.floor((usableW - gap*(n-1))/n));
+  const grad = ctx.createLinearGradient(0, padT, 0, padT + innerH);
+  grad.addColorStop(0, "#6CA0FF");
+  grad.addColorStop(1, "#3A64CC");
 
-  ctx.fillStyle = bar;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < values.length; i++) {
     const v = values[i];
-    const h = (v / maxVal) * (H - PAD_T - PAD_B);
-    const x = PAD_L + i * (barW + gap);
-    const y = H - PAD_B - h;
-    roundRect(ctx, x, y, barW, h, 3);
+    const h = (v / maxVal) * innerH;
+    const x = i * stepX + (barGap / 2);
+    const y = innerH - h;
+
+    // Rounded rect bar
+    ctx.fillStyle = grad;
+    roundRect(ctx, x, y, barW, h, radius);
     ctx.fill();
+
+    // Soft outer glow on taller bars
+    if (h > innerH * 0.25) {
+      ctx.save();
+      ctx.shadowColor = "rgba(91,140,255,0.18)";
+      ctx.shadowBlur = 12;
+      ctx.shadowOffsetY = 0;
+      ctx.fillStyle = "rgba(0,0,0,0)"; // shadow only
+      roundRect(ctx, x, y, barW, h, radius);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
-  // Y labels (0 and max)
-  ctx.fillStyle = label;
-  ctx.font = "12px system-ui, -apple-system, Segoe UI, Roboto";
-  ctx.textAlign = "right";
-  ctx.fillText(String(0), PAD_L - 6, H - PAD_B + 12);
-  ctx.fillText(String(maxVal), PAD_L - 6, PAD_T + 4);
-}
-
-function roundRect(ctx, x, y, w, h, r){
+  // X-axis ticks (start, mid, end) — subtle
+  ctx.strokeStyle = "rgba(230,233,242,0.10)";
   ctx.beginPath();
-  ctx.moveTo(x+r, y);
-  ctx.arcTo(x+w, y, x+w, y+h, r);
-  ctx.arcTo(x+w, y+h, x, y+h, r);
-  ctx.arcTo(x, y+h, x, y, r);
-  ctx.arcTo(x, y, x+w, y, r);
-  ctx.closePath();
+  ctx.moveTo(0, innerH + 0.5);
+  ctx.lineTo(innerW, innerH + 0.5);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // Helper: rounded rect path
+  function roundRect(ctx, x, y, w, h, r) {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(padL + x + rr, padT + y);
+    ctx.arcTo(padL + x + w, padT + y, padL + x + w, padT + y + rr, rr);
+    ctx.lineTo(padL + x + w, padT + y + h - rr);
+    ctx.arcTo(padL + x + w, padT + y + h, padL + x + w - rr, padT + y + h, rr);
+    ctx.lineTo(padL + x + rr, padT + y + h);
+    ctx.arcTo(padL + x, padT + y + h, padL + x, padT + y + h - rr, rr);
+    ctx.lineTo(padL + x, padT + y + rr);
+    ctx.arcTo(padL + x, padT + y, padL + x + rr, padT + y, rr);
+    ctx.closePath();
+  }
 }
 
-// --- 90-day heatmap ---
-export function renderCalendarHeatmap(container, progressByDay) {
+export function renderCalendarHeatmap(container, progress) {
   if (!container) return;
-  container.innerHTML = "";
-  // Build last 90 days array (oldest -> newest)
+
+  // Build last 90 days
   const days = [];
-  const today = new Date();
-  today.setHours(0,0,0,0);
+  const base = new Date();
+  base.setHours(0, 0, 0, 0);
   for (let i = 89; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    const key = d.toISOString().slice(0,10);
-    const points = (progressByDay && progressByDay[key] && progressByDay[key].points) || 0;
-    days.push({ key, points });
+    const d = new Date(base);
+    d.setDate(base.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
   }
 
-  // thresholds for coloring
-  const t1 = 10, t2 = 30, t3 = 60;
-  for (const day of days) {
+  // Extract values (points per day)
+  const vals = days.map(d => (progress && progress[d] ? (progress[d].points || 0) : 0));
+
+  // Determine levels using adaptive thresholds
+  const nonZero = vals.filter(v => v > 0).sort((a, b) => a - b);
+  let t1 = 5, t2 = 20, t3 = 50, t4 = 100; // fallbacks
+  if (nonZero.length >= 4) {
+    t1 = quantile(nonZero, 0.35);
+    t2 = quantile(nonZero, 0.60);
+    t3 = quantile(nonZero, 0.80);
+    t4 = quantile(nonZero, 0.95);
+    // Ensure monotonic increase
+    const uniq = [...new Set([t1, t2, t3, t4])];
+    while (uniq.length < 4) uniq.push(uniq[uniq.length - 1] + 1);
+    [t1, t2, t3, t4] = uniq;
+  }
+
+  // Render
+  container.innerHTML = "";
+  for (let i = 0; i < days.length; i++) {
+    const d = days[i];
+    const v = vals[i];
+
     const cell = document.createElement("div");
     cell.className = "hm-cell";
-    if (day.points > 0 && day.points <= t1) cell.classList.add("hm-l1");
-    if (day.points > t1 && day.points <= t2) cell.classList.add("hm-l2");
-    if (day.points > t2 && day.points <= t3) cell.classList.add("hm-l3");
-    if (day.points > t3) cell.classList.add("hm-l4");
-    cell.title = `${day.key}: ${day.points} pts`;
+
+    if (v > 0) {
+      if (v <= t1) cell.classList.add("hm-l1");
+      else if (v <= t2) cell.classList.add("hm-l2");
+      else if (v <= t3) cell.classList.add("hm-l3");
+      else cell.classList.add("hm-l4");
+    }
+
+    cell.title = `${d}: ${v} pts`;
     container.appendChild(cell);
+  }
+
+  function quantile(arr, q) {
+    const pos = (arr.length - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    if (arr[base + 1] !== undefined) {
+      return arr[base] + rest * (arr[base + 1] - arr[base]);
+    } else {
+      return arr[base];
+    }
   }
 }
