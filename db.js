@@ -1,82 +1,162 @@
-// db.js — tiny IndexedDB wrapper for a single "state" object
-// Stores everything under DB "liferpg", store "kv", key "state"
+// db.js — tiny storage helpers for LifeRPG v4
+// Used by app.js: loadState, saveState, clearAll, exportJSON, importJSON
 
-const DB_NAME = "liferpg";
-const DB_VERSION = 1;
-const STORE = "kv";
-const KEY = "state";
+const STORAGE_KEY = "liferpg-state-v4";
+const BACKUPS_KEY = "liferpg-backups";
+const MAX_BACKUPS = 3;
 
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = (e) => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "key" });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-async function getRaw(key) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readonly");
-    const st = tx.objectStore(STORE);
-    const r = st.get(key);
-    r.onsuccess = () => resolve(r.result ? r.result.value : null);
-    r.onerror = () => reject(r.error);
-  });
-}
-
-async function setRaw(key, value) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    const st = tx.objectStore(STORE);
-    const r = st.put({ key, value });
-    r.onsuccess = () => resolve();
-    r.onerror = () => reject(r.error);
-  });
-}
-
+/* --------------------
+   Core helpers
+-------------------- */
 export async function loadState() {
-  const v = await getRaw(KEY);
-  if (!v) return null;
-  return v;
+  // Try main
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      console.warn("[db] Corrupt main state, trying backups…", e);
+    }
+  }
+
+  // Try latest backup
+  const backups = getBackups();
+  for (const b of backups) {
+    try {
+      const obj = JSON.parse(b.data);
+      console.warn("[db] Restored from backup:", new Date(b.when).toISOString());
+      // don't auto-save yet; caller will save after migration/render
+      return obj;
+    } catch (e) {
+      // continue
+    }
+  }
+
+  // Nothing found
+  return null;
 }
 
 export async function saveState(state) {
-  // defensive clone to strip functions
-  const safe = JSON.parse(JSON.stringify(state));
-  await setRaw(KEY, safe);
+  if (!state || typeof state !== "object") return;
+  const json = JSON.stringify(state);
+  try {
+    localStorage.setItem(STORAGE_KEY, json);
+  } catch (e) {
+    // If storage is full, try to free by removing oldest backup, then retry once
+    console.warn("[db] save failed, pruning backups…", e);
+    pruneOneBackup();
+    try {
+      localStorage.setItem(STORAGE_KEY, json);
+    } catch (e2) {
+      console.error("[db] save failed again", e2);
+      throw e2;
+    }
+  }
+  // Keep a rolling backup occasionally (every ~10 saves)
+  maybeSnapshotBackup(json);
 }
 
 export async function clearAll() {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    const st = tx.objectStore(STORE);
-    const r = st.delete(KEY);
-    r.onsuccess = () => resolve();
-    r.onerror = () => reject(r.error);
-  });
+  localStorage.removeItem(STORAGE_KEY);
+  // Keep backups for safety; if you want to wipe those too, uncomment:
+  // localStorage.removeItem(BACKUPS_KEY);
 }
 
-// Helpers for export/import
 export async function exportJSON() {
-  const state = await loadState();
-  return JSON.stringify(state ?? {}, null, 2);
+  // Prefer current main; if missing, fall back to newest backup
+  const main = localStorage.getItem(STORAGE_KEY);
+  if (main) return main;
+
+  const backups = getBackups();
+  if (backups.length) return backups[0].data;
+
+  // Nothing to export
+  return JSON.stringify({});
 }
 
 export async function importJSON(text) {
-  let obj;
-  try { obj = JSON.parse(text); } catch (e) { throw new Error("Invalid JSON"); }
-  if (!obj || typeof obj !== "object") throw new Error("Invalid data");
-  // very light validation
-  if (!obj.version) obj.version = 1;
-  await saveState(obj);
+  let obj = null;
+  try {
+    obj = JSON.parse(text);
+  } catch (e) {
+    throw new Error("Invalid JSON");
+  }
+  // Store as-is; app.js will run migration and re-save
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+  // snapshot a backup immediately
+  pushBackup(JSON.stringify(obj));
   return obj;
 }
+
+/* --------------------
+   Backups (ring buffer)
+-------------------- */
+function getBackups() {
+  const raw = localStorage.getItem(BACKUPS_KEY);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) return arr;
+  } catch {}
+  return [];
+}
+
+function setBackups(arr) {
+  try {
+    localStorage.setItem(BACKUPS_KEY, JSON.stringify(arr));
+  } catch (e) {
+    // If even backups can't be saved, drop the oldest and retry once
+    try {
+      arr.pop();
+      localStorage.setItem(BACKUPS_KEY, JSON.stringify(arr));
+    } catch (e2) {
+      console.warn("[db] Failed to save backups", e2);
+    }
+  }
+}
+
+function pushBackup(data) {
+  const arr = getBackups();
+  // Put newest first
+  arr.unshift({ when: Date.now(), data });
+  // Trim to limit
+  while (arr.length > MAX_BACKUPS) arr.pop();
+  setBackups(arr);
+}
+
+function pruneOneBackup() {
+  const arr = getBackups();
+  if (arr.length > 0) {
+    arr.pop();
+    setBackups(arr);
+  }
+}
+
+let _saveCount = 0;
+function maybeSnapshotBackup(latestJSON) {
+  _saveCount++;
+  if (_saveCount % 10 === 0) {
+    pushBackup(latestJSON);
+  }
+}
+
+/* --------------------
+   Legacy key migration (best-effort)
+   If you previously used another key, add it here.
+-------------------- */
+(function tryMigrateLegacy() {
+  try {
+    // Example legacy keys
+    const legacyKeys = ["liferpg-state", "lifeRPG", "state"];
+    for (const k of legacyKeys) {
+      const v = localStorage.getItem(k);
+      if (v && !localStorage.getItem(STORAGE_KEY)) {
+        console.info("[db] Migrating legacy key:", k);
+        localStorage.setItem(STORAGE_KEY, v);
+        // keep old as a backup
+        pushBackup(v);
+        break;
+      }
+    }
+  } catch {}
+})();
