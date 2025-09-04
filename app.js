@@ -5,6 +5,7 @@
 
 import { loadState, saveState, clearAll, exportJSON, importJSON } from "./db.js";
 import { renderBarChart, renderCalendarHeatmap } from "./charts.js";
+import { confettiBurst } from "./effects.js";
 
 /* =========================
    Tiny utilities
